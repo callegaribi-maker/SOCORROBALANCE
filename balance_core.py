@@ -43,6 +43,19 @@ def _coluna_tempo(d):
     return d.columns[0]
 
 
+def tipo_arquivo(conteudo):
+    """'plataforma', 'celular' ou None, pelas colunas do cabeçalho."""
+    if isinstance(conteudo, bytes):
+        conteudo = conteudo[:5000].decode("utf-8", errors="replace")
+    cab = conteudo.splitlines()[0] if conteudo else ""
+    cols = {c.strip().strip('"').lower() for c in cab.replace("\t", ",").replace(";", ",").split(",")}
+    if {"fz", "copx", "copy"} <= cols:
+        return "plataforma"
+    if {"x", "y", "z"} <= cols:
+        return "celular"
+    return None
+
+
 def ler_plataforma(arquivo):
     """Arquivo da plataforma: Time (s), Fz, COPx, COPy (tab ou vírgula)."""
     d = _ler_tabela(arquivo)
