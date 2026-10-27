@@ -73,7 +73,32 @@ eixos = dict(vertical=eixo_v, ap=eixo_ap, ml=eixo_ml, sinal_ap=sinal_ap, sinal_m
 
 st.title("Equilíbrio estático — COP (plataforma) x COM (celular)")
 
+# --- reconhece cada arquivo pelas colunas (corrige arquivos carregados no campo trocado) ---
+todos = list(arq_plat or []) + ([arq_cel] if arq_cel is not None else [])
+vistos, tipos = set(), {"plataforma": [], "celular": [], None: []}
+for a in todos:
+    if (a.name, a.size) in vistos:
+        continue
+    vistos.add((a.name, a.size))
+    tipos[B.tipo_arquivo(a.getvalue())].append(a)
+for a in tipos[None]:
+    st.sidebar.error(f"'{a.name}': colunas não reconhecidas. Plataforma precisa de Fz, COPx, COPy; "
+                     "celular precisa de X, Y, Z.")
+trocado = any(B.tipo_arquivo(a.getvalue()) == "celular" for a in (arq_plat or [])) or \
+    (arq_cel is not None and B.tipo_arquivo(arq_cel.getvalue()) == "plataforma")
+if todos and trocado:
+    st.sidebar.warning("Alguns arquivos estavam no campo trocado — reconhecidos pelas colunas e "
+                       "usados corretamente.")
+if len(tipos["celular"]) > 1:
+    st.sidebar.error("Mais de um arquivo de celular carregado: deixe só um.")
+    st.stop()
+arq_plat = tipos["plataforma"]
+arq_cel = tipos["celular"][0] if tipos["celular"] else None
+
 if not arq_plat or arq_cel is None:
+    falta = [n for n, ok in [("plataforma (Fz, COPx, COPy)", arq_plat), ("celular (X, Y, Z)", arq_cel)] if not ok]
+    if todos:
+        st.warning("Falta o arquivo: " + " e ".join(falta))
     st.info("⬅️ Carregue o(s) arquivo(s) da plataforma e o arquivo do celular na barra lateral.")
     st.markdown(
         """
@@ -88,8 +113,12 @@ if not arq_plat or arq_cel is None:
 
 arq_plat = sorted(arq_plat, key=lambda a: a.name)
 with st.spinner("Lendo arquivos..."):
-    plats = {a.name: carregar_plataforma(a.name, a.getvalue(), fs) for a in arq_plat}
-    cel_bruto, cel = carregar_celular(arq_cel.name, arq_cel.getvalue(), fs)
+    try:
+        plats = {a.name: carregar_plataforma(a.name, a.getvalue(), fs) for a in arq_plat}
+        cel_bruto, cel = carregar_celular(arq_cel.name, arq_cel.getvalue(), fs)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"Não consegui ler os arquivos: {type(e).__name__}: {e}")
+        st.stop()
 
 modo_unico = len(plats) == 1
 st.sidebar.success(
@@ -247,6 +276,10 @@ if st.button("↺ Redetectar segmentação"):
     st.session_state.pop("seg_editor", None)
     st.rerun()
 
+# figura e ajuste fino aparecem ANTES da tabela (preenchidos depois, com os valores editados)
+area_fig = st.container()
+area_fino = st.container()
+
 st.caption("Edite livremente: nome da condição, início/fim (s, no tempo da plataforma), "
            "'Girar_90' para quem ficou de lado na plataforma (AP = COPx, ML = −COPy), "
            "ou adicione/remova linhas.")
@@ -264,7 +297,7 @@ seg = seg_full.dropna(subset=["Condicao", "Arquivo", "Inicio_s", "Fim_s"])
 seg = seg[seg.Incluir.fillna(True).astype(bool)]
 
 # ajuste fino por slider
-with st.expander("Ajuste fino de uma janela com slider"):
+with area_fino.expander("Ajuste fino de uma janela com slider"):
     if len(seg):
         idx = st.selectbox("Condição", seg.index, format_func=lambda i: seg.loc[i, "Condicao"])
         p = plats[seg.loc[idx, "Arquivo"]][1]
@@ -309,7 +342,7 @@ for nome, (bruto, p) in plats.items():
                       legend=dict(orientation="h", y=-0.08))
     fig.update_xaxes(title_text="tempo da plataforma (s)", row=3, col=1)
     fig.update_yaxes(title_text="Fz (N)", row=1, col=1)
-    st.plotly_chart(fig, width="stretch")
+    area_fig.plotly_chart(fig, width="stretch")
 
 # =============================================================================
 # 3. FILTRAGEM
