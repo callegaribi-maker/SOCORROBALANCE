@@ -37,6 +37,22 @@ def carregar_celular(nome, conteudo, fs):
     return bruto, B.reamostrar(bruto, fs)
 
 
+def tipo_arquivo(conteudo):
+    """'plataforma', 'celular' ou None, pelas colunas do cabeçalho.
+    (cópia local: funciona mesmo se o balance_core.py do repositório for uma versão antiga)"""
+    if hasattr(B, "tipo_arquivo"):
+        return B.tipo_arquivo(conteudo)
+    if isinstance(conteudo, bytes):
+        conteudo = conteudo[:5000].decode("utf-8", errors="replace")
+    cab = conteudo.splitlines()[0] if conteudo else ""
+    cols = {c.strip().strip('"').lower() for c in cab.replace("\t", ",").replace(";", ",").split(",")}
+    if {"fz", "copx", "copy"} <= cols:
+        return "plataforma"
+    if {"x", "y", "z"} <= cols:
+        return "celular"
+    return None
+
+
 def chave_arquivos(arqs):
     return tuple((a.name, a.size) for a in arqs)
 
@@ -80,12 +96,12 @@ for a in todos:
     if (a.name, a.size) in vistos:
         continue
     vistos.add((a.name, a.size))
-    tipos[B.tipo_arquivo(a.getvalue())].append(a)
+    tipos[tipo_arquivo(a.getvalue())].append(a)
 for a in tipos[None]:
     st.sidebar.error(f"'{a.name}': colunas não reconhecidas. Plataforma precisa de Fz, COPx, COPy; "
                      "celular precisa de X, Y, Z.")
-trocado = any(B.tipo_arquivo(a.getvalue()) == "celular" for a in (arq_plat or [])) or \
-    (arq_cel is not None and B.tipo_arquivo(arq_cel.getvalue()) == "plataforma")
+trocado = any(tipo_arquivo(a.getvalue()) == "celular" for a in (arq_plat or [])) or \
+    (arq_cel is not None and tipo_arquivo(arq_cel.getvalue()) == "plataforma")
 if todos and trocado:
     st.sidebar.warning("Alguns arquivos estavam no campo trocado — reconhecidos pelas colunas e "
                        "usados corretamente.")
@@ -336,10 +352,13 @@ for nome, (bruto, p) in plats.items():
                           line_width=0, row=row, col=1)
         fig.add_annotation(x=(r.Inicio_s + r.Fim_s) / 2, y=0.97, xref="x", yref="y domain",
                            text=f"<b>{r.Condicao}</b>", showarrow=False, yanchor="top", row=1, col=1)
-    lim = 4 * np.nanstd(np.clip(p.COPx - p.COPx.median(), -10, 10))
+    # escala do COP pelos trechos em pé (Fz > 50% do peso): ignora o ruído com a plataforma vazia
+    em_pe = p.Fz > 0.5 * sinc[nome]["peso"]
+    vals = np.concatenate([(p.COPx - p.COPx.median())[em_pe], (p.COPy - p.COPy.median())[em_pe]])
+    lim = 1.2 * np.nanpercentile(np.abs(vals), 99.5) if len(vals) else 5
     fig.update_yaxes(range=[-max(lim, 1), max(lim, 1)], row=2, col=1)
-    fig.update_layout(height=620, margin=dict(t=60, b=30), title=nome if not modo_unico else None,
-                      legend=dict(orientation="h", y=-0.08))
+    fig.update_layout(height=680, margin=dict(t=70, b=70), title=nome if not modo_unico else None,
+                      legend=dict(orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right"))
     fig.update_xaxes(title_text="tempo da plataforma (s)", row=3, col=1)
     fig.update_yaxes(title_text="Fz (N)", row=1, col=1)
     area_fig.plotly_chart(fig, width="stretch")
